@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "name": "wsl-toolkit",
+  "displayName": "WSL Toolkit",
+  "version": "1.0.5",
+  "description": "Operate a Windows Subsystem for Linux distro through dedicated tools: run commands, read, write, edit, list and delete files inside the distro, even when the built-in shell cannot reach a WSL workspace.",
+  "author": "Krishna Kumar",
+  "icon": "icon.png",
+  "darkIcon": "icon-dark.png",
+  "category": "Code",
+  "exampleQueries": [
+    "Run this command inside my WSL Kali distro and show me the output.",
+    "Read /etc/wsl.conf from my WSL distro and explain what each setting does.",
+    "Update a file in my WSL home directory using an exact string replacement.",
+    "List a directory in my WSL distro including hidden files.",
+    "Delete this directory in WSL and tell me exactly how to restore it."
+  ],
+  "apps": [],
+  "mcpServers": [
+    "wsl.mcp.json"
+  ],
+  "skills": [
+    "skills/wsl-command-execution/SKILL.md",
+    "skills/wsl-file-operations/SKILL.md"
+  ],
+  "hooks": [
+    "hooks/hooks.json"
+  ]
+}

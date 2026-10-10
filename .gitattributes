@@ -1,0 +1,10 @@
+# Keep line endings stable across Windows and Linux checkouts. The server
+# compares exact bytes when editing files, so a CRLF/LF flip would silently
+# break every replacement.
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary

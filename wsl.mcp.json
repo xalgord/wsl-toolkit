@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "mcpServers": {
+    "wsl-toolkit": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "./servers/wsl-server.js"
+      ],
+      "env": {},
+      "description": "Run commands and read, write, edit, list or delete files inside a Windows Subsystem for Linux distro.",
+      "timeout": 30000
+    }
+  }
+}

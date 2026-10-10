@@ -90,7 +90,13 @@ function singleQuote(value) {
   return "'" + String(value).replace(/'/g, "'\\''") + "'";
 }
 
-/** Windows UNC or drive path to Linux path. Linux input is returned unchanged. */
+/**
+ * Windows UNC or drive path to Linux path. Linux input is returned unchanged.
+ *
+ * Both separator styles are accepted because callers pass raw Windows paths.
+ * The drive-letter branch deliberately has no leading slash: after
+ * normalisation `C:\Users\me` is `C:/Users/me`, which does not start with `/`.
+ */
 function toLinuxPath(value) {
   if (typeof value !== 'string' || value === '') return undefined;
 
@@ -102,12 +108,35 @@ function toLinuxPath(value) {
     return rest.replace(/\/+$/, '');
   }
 
-  const drive = /^\/([a-zA-Z])\/(.*)$/.exec(unified);
+  const drive = /^([a-zA-Z]):(?:\/(.*))?$/.exec(unified);
   if (drive) {
-    return '/mnt/' + drive[1].toLowerCase() + '/' + drive[2];
+    const tail = drive[2] || '';
+    return tail === '' ? '/mnt/' + drive[1].toLowerCase() : '/mnt/' + drive[1].toLowerCase() + '/' + tail;
   }
 
-  return value;
+  return unified;
+}
+
+/**
+ * Collapse `.` and `..` lexically.
+ *
+ * This matters for the deletion guard: without it `/tmp/../etc` fails the
+ * protected-path check and would happily delete `/etc`. This is a lexical
+ * normalisation only, it does not resolve symlinks, so it is a correctness
+ * guard rather than a security boundary.
+ */
+function normaliseLinuxPath(value) {
+  const absolute = String(value).charAt(0) === '/' ? String(value) : '/' + value;
+  const out = [];
+  for (const part of absolute.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      out.pop();
+      continue;
+    }
+    out.push(part);
+  }
+  return '/' + out.join('/');
 }
 
 /** Distro name encoded in a Windows UNC path, if any. */
@@ -119,7 +148,8 @@ function distroFromPath(value) {
 
 function resolveTarget(args) {
   const raw = args && typeof args.path === 'string' ? args.path.trim() : '';
-  const linuxPath = toLinuxPath(raw);
+  const converted = toLinuxPath(raw);
+  const linuxPath = converted === undefined ? undefined : normaliseLinuxPath(converted);
   const distro =
     (typeof args.distro === 'string' && args.distro.trim()) ||
     distroFromPath(raw) ||
@@ -297,11 +327,18 @@ function writeFileInDistro(target, content, mode, timeoutMs) {
     'if [ "$M" = "create" ] && [ -e "$P" ]; then',
     '  echo "file already exists: $P" >&2; exit 4;',
     'fi',
-    'mkdir -p "$(dirname -- "$P")"',
+    'D="$(dirname -- "$P")"',
+    'mkdir -p "$D"',
     'if [ "$M" = "append" ]; then',
     '  printf %s ' + singleQuote(encoded) + ' | base64 -d >> "$P"',
     'else',
-    '  printf %s ' + singleQuote(encoded) + ' | base64 -d > "$P"',
+    // Write to a sibling temp file and rename over the target. A rename
+    // inside one filesystem is atomic, so an interrupted or failed write
+    // can never leave a truncated or half-written file behind.
+    '  T="$D/.wsltk.tmp.$$"',
+    '  printf %s ' + singleQuote(encoded) + ' | base64 -d > "$T"',
+    '  if [ -e "$P" ]; then chmod --reference="$P" "$T" 2>/dev/null || true; fi',
+    '  mv -f "$T" "$P"',
     'fi',
     'wc -c < "$P"',
   ].join('\n');
@@ -330,7 +367,7 @@ function handleExec(args) {
     process.env.WSL_DEFAULT_DISTRO ||
     undefined;
 
-  const script = command;
+  let script = command;
   if (cwd) {
     script = 'cd ' + singleQuote(cwd) + ' || exit 1\n' + command;
   }
@@ -477,6 +514,10 @@ function handleEdit(args) {
   );
 }
 
+function isProtectedPath(path) {
+  return PROTECTED_PATHS.indexOf(path) !== -1;
+}
+
 function handleDelete(args) {
   const target = resolveTarget(args);
   if (!target.linuxPath) {
@@ -487,7 +528,7 @@ function handleDelete(args) {
   const permanent = args.permanent === true;
   const recursive = args.recursive === true;
 
-  if (PROTECTED_PATHS.indexOf(path) !== -1) {
+  if (isProtectedPath(path)) {
     return textResult(
       'wsl_delete refused: ' + path + ' is a protected system path. Delete a specific child instead.',
       true
@@ -589,12 +630,17 @@ function handleList(args) {
 
   let body = result.stdout.replace(/\n$/, '');
   if (!showHidden && depth > 1) {
+    const prefix = target.linuxPath + '/';
     body = body
       .split('\n')
       .filter((line) => {
-        if (line === target.linuxPath || line.indexOf(target.linuxPath + '/') === 0) return true;
-        const name = line.slice(target.linuxPath.length + 1);
-        return name === '' || name.charAt(0) !== '.';
+        if (line === target.linuxPath || line.indexOf(prefix) !== 0) return true;
+        // Test every remaining path component, not just the first one. A
+        // hidden file nested below a visible directory is still hidden.
+        return !line
+          .slice(prefix.length)
+          .split('/')
+          .some((part) => part.length > 1 && part.charAt(0) === '.');
       })
       .join('\n');
   }
@@ -696,7 +742,8 @@ const TOOLS = [
         },
         timeout_ms: {
           type: 'number',
-          description: 'Kill the command after this many milliseconds. Default 120000, maximum 900000.',
+          description: 'Kill the command after this many milliseconds. Default 25000, maximum 900000. ' +
+            'Very large directories and slow disks are the usual cause of a timeout.',
         },
       },
       required: ['command'],
@@ -920,4 +967,22 @@ function main() {
   process.stdin.on('error', () => process.exit(0));
 }
 
-main();
+// Only start the stdio loop when executed directly, so the test suite can
+// require this file and exercise the helpers without spawning a server.
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  TOOLS,
+  HANDLERS,
+  handleMessage,
+  toLinuxPath,
+  normaliseLinuxPath,
+  distroFromPath,
+  isProtectedPath,
+  resolveTarget,
+  singleQuote,
+  readScript,
+  PROTECTED_PATHS,
+};

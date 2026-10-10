@@ -18,7 +18,11 @@
 
 import process from 'node:process';
 
-const UNC_WSL = /^\\\\(?:wsl\.localhost|wsl\$)\\/i;
+// Applied to the normalised, forward-slash form of the path. Matching the
+// backslash form here is a bug: `\\wsl.localhost\...` is normalised to
+// `//wsl.localhost/...` before this runs, so a backslash pattern never fires
+// and the hook silently never injects anything.
+const UNC_WSL = /^\/\/(?:wsl\.localhost|wsl\$)\/([^/]+)(\/.*)?$/i;
 const MAX_INPUT_BYTES = 1024 * 1024;
 
 function readStdin() {
@@ -46,18 +50,17 @@ function readStdin() {
 function parse(cwd) {
   if (typeof cwd !== 'string' || cwd === '') return null;
 
-  const unified = cwd.replace(/\\/g, '/');
-  const match = UNC_WSL.exec(unified);
+  // Test the normalised forward-slash form. For
+  // \\wsl.localhost\kali-linux\home\user the captures are
+  // 1 = 'kali-linux' (the distro, not the server name) and 2 = '/home/user'.
+  const match = UNC_WSL.exec(cwd.replace(/\\/g, '/'));
   if (!match) return null;
 
-  // unified looks like //wsl.localhost/kali-linux/home/user/project
-  const segments = unified.replace(/^\/+/, '').split('/');
-  if (segments.length < 2) return null;
-
-  const distro = segments[0];
-  const linuxPath = '/' + segments.slice(1).join('/');
-
-  return { distro, linuxPath, windowsPath: cwd };
+  return {
+    distro: match[1],
+    linuxPath: match[2] || '/',
+    windowsPath: cwd,
+  };
 }
 
 function buildContext(info) {

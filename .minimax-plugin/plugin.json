@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "wsl-toolkit",
   "displayName": "WSL Toolkit",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "description": "Operate a Windows Subsystem for Linux distro through dedicated tools: run commands, read, write, edit, list and delete files inside the distro, even when the built-in shell cannot reach a WSL workspace.",
   "author": "Krishna Kumar",
   "icon": "icon.png",

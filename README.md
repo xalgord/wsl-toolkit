@@ -54,8 +54,36 @@ stdin and runs `bash -s`. File content rides inside the script as base64.
 the script with single-quote escaping, and `'\''` correctly escapes an embedded
 quote.
 
+**Writes are atomic.** `wsl_write` and `wsl_edit` decode content into a sibling
+temp file and rename it over the target. A rename within one filesystem is
+atomic, so an interrupted or failed write can never leave a truncated file
+behind. `append` is the exception, since appending is inherently in-place.
+
+**Paths are normalised before use.** `.` and `..` are collapsed lexically before
+a path reaches the shell or the deletion guard, so `/tmp/../etc` is correctly
+recognised as `/etc` and refused. This is a lexical normalisation, not a
+symlink resolution, so it is a correctness guard rather than a security
+boundary.
+
 **No npm dependencies.** Only Node.js built-ins, so the server starts anywhere
 Node is installed.
+
+## Tests
+
+```bash
+node --test test/
+```
+
+Seventeen tests covering path translation, `..` normalisation, shell quoting,
+the deletion guard, the tool schema, the JSON-RPC surface, and the SessionStart
+hook end to end. They need no network and no mock WSL, so they run in CI.
+
+Several of them exist because the bug was real and had already shipped once.
+`wsl_exec` used `const` for a variable it reassigned whenever `cwd` was passed,
+which threw at runtime but not at parse time, so `node --check` passed and the
+smoke tests missed it entirely. The hook's UNC pattern expected backslashes but
+was tested against the normalised forward-slash path, so it silently matched
+nothing. Both are now guarded.
 
 ## Skills
 
